@@ -2,6 +2,9 @@ import subprocess
 import sys
 import json
 import urllib.request
+import threading
+import time
+import itertools
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL_NAME = "mistral"
@@ -32,6 +35,19 @@ def generate_commit_message(diff):
     except Exception:
         return None
 
+def spinner_animation(stop_event):
+    """Anime un spinner stylé dans le terminal pendant que l'IA réfléchit."""
+    # Liste de caractères braille pour l'effet de rotation
+    spinner = itertools.cycle(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'])
+    while not stop_event.is_set():
+        # \r remet le curseur au début de la ligne, \033[96m met en cyan
+        sys.stdout.write(f"\r\033[96m{next(spinner)}\033[0m CommitCraft réfléchit...")
+        sys.stdout.flush()
+        time.sleep(0.08)
+    # Nettoie la ligne une fois terminé
+    sys.stdout.write('\r' + ' ' * 40 + '\r')
+    sys.stdout.flush()
+
 def main():
     diff = get_git_diff()
     if not diff:
@@ -39,15 +55,24 @@ def main():
         return
 
     while True:
-        print(f"🤖 L'IA ({MODEL_NAME}) génère ton message...")
+        # Configuration et lancement du thread de l'animation
+        stop_spinner = threading.Event()
+        spinner_thread = threading.Thread(target=spinner_animation, args=(stop_spinner,))
+        spinner_thread.start()
+
+        # Appel à l'IA pendant que le spinner tourne
         commit_msg = generate_commit_message(diff)
+
+        # Arrêt propre du spinner
+        stop_spinner.set()
+        spinner_thread.join()
 
         if not commit_msg:
             print(f"❌ Impossible de joindre Ollama sur {OLLAMA_URL}.")
-            print("💡 Astuce locale : Assure-toi qu'Ollama tourne sur ta machine ou dans ton Codespace.")
+            print("💡 Astuce locale : Assure-toi qu'Ollama tourne sur ta machine.")
             break
 
-        print("\n✨ Message suggéré :")
+        print("✨ Message suggéré :")
         print(f"\033[92m{commit_msg}\033[0m\n")
 
         choice = input("Appliquer ce commit ? [Y/n/r] (Yes / No / Regenerate) : ").strip().lower()
@@ -60,7 +85,7 @@ def main():
                 print("❌ Échec lors de l'exécution du commit.")
             break
         elif choice == 'r':
-            print("\n🔄 On recommence...\n")
+            print("\n🔄 On régénère un message...\n")
             continue
         else:
             print("❌ Commit annulé.")

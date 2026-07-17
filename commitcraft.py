@@ -5,9 +5,11 @@ import urllib.request
 import threading
 import time
 import itertools
+import argparse
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "mistral"
+# Valeurs par défaut
+DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
+DEFAULT_MODEL_NAME = "mistral"
 
 def get_git_diff():
     try:
@@ -17,17 +19,17 @@ def get_git_diff():
         print("❌ Erreur : Impossible d'exécuter 'git diff'. Es-tu dans un dépôt Git ?")
         sys.exit(1)
 
-def generate_commit_message(diff):
+def generate_commit_message(diff, url, model):
     prompt = (
         "Tu es un expert Git. Génère un message de commit court, précis et en anglais, "
         "en respectant STRICTEMENT la convention 'Conventional Commits' (ex: 'feat: add auth login', 'fix: resolve memory leak'). "
         "Ne renvoie QUE le message de commit, aucun commentaire, aucune explication, pas de balises markdown."
         f"\n\nVoici le Git Diff :\n{diff}"
     )
-    data = {"model": MODEL_NAME, "prompt": prompt, "stream": False}
+    data = {"model": model, "prompt": prompt, "stream": False}
     try:
         req = urllib.request.Request(
-            OLLAMA_URL, data=json.dumps(data).encode('utf-8'), headers={'Content-Type': 'application/json'}
+            url, data=json.dumps(data).encode('utf-8'), headers={'Content-Type': 'application/json'}
         )
         with urllib.request.urlopen(req) as response:
             res_data = json.loads(response.read().decode('utf-8'))
@@ -35,41 +37,40 @@ def generate_commit_message(diff):
     except Exception:
         return None
 
-def spinner_animation(stop_event):
-    """Anime un spinner stylé dans le terminal pendant que l'IA réfléchit."""
-    # Liste de caractères braille pour l'effet de rotation
+def spinner_animation(stop_event, model):
     spinner = itertools.cycle(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'])
     while not stop_event.is_set():
-        # \r remet le curseur au début de la ligne, \033[96m met en cyan
-        sys.stdout.write(f"\r\033[96m{next(spinner)}\033[0m CommitCraft réfléchit...")
+        sys.stdout.write(f"\r\033[96m{next(spinner)}\033[0m CommitCraft ({model}) réfléchit...")
         sys.stdout.flush()
         time.sleep(0.08)
-    # Nettoie la ligne une fois terminé
-    sys.stdout.write('\r' + ' ' * 40 + '\r')
+    sys.stdout.write('\r' + ' ' * 50 + '\r')
     sys.stdout.flush()
 
 def main():
+    # Configuration d'argparse
+    parser = argparse.ArgumentParser(description="🤖 CommitCraft - Générateur de commits IA local")
+    parser.add_argument("-m", "--model", default=DEFAULT_MODEL_NAME, help=f"Modèle Ollama à utiliser (par défaut: {DEFAULT_MODEL_NAME})")
+    parser.add_argument("-u", "--url", default=DEFAULT_OLLAMA_URL, help=f"URL de l'API Ollama (par défaut: {DEFAULT_OLLAMA_URL})")
+    args = parser.parse_args()
+
     diff = get_git_diff()
     if not diff:
         print("📭 Aucun changement indexé détecté. Fais un 'git add' d'abord !")
         return
 
     while True:
-        # Configuration et lancement du thread de l'animation
         stop_spinner = threading.Event()
-        spinner_thread = threading.Thread(target=spinner_animation, args=(stop_spinner,))
+        spinner_thread = threading.Thread(target=spinner_animation, args=(stop_spinner, args.model))
         spinner_thread.start()
 
-        # Appel à l'IA pendant que le spinner tourne
-        commit_msg = generate_commit_message(diff)
+        commit_msg = generate_commit_message(diff, args.url, args.model)
 
-        # Arrêt propre du spinner
         stop_spinner.set()
         spinner_thread.join()
 
         if not commit_msg:
-            print(f"❌ Impossible de joindre Ollama sur {OLLAMA_URL}.")
-            print("💡 Astuce locale : Assure-toi qu'Ollama tourne sur ta machine.")
+            print(f"❌ Impossible de joindre Ollama sur {args.url}.")
+            print(f"💡 Vérifie qu'Ollama tourne et que le modèle '{args.model}' est bien installé (`ollama run {args.model}`).")
             break
 
         print("✨ Message suggéré :")
